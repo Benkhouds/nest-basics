@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectConnection, InjectRepository } from '@nestjs/typeorm';
+import { Event } from 'src/events/entities/event.entity';
+import { Connection, Repository } from 'typeorm';
 import { CreateCoffeeDto } from './dto/create-coffee.dto';
 import { PaginationQueryDto } from './dto/pagination-query.dto';
 import { UpdateCoffeeDto } from './dto/update-coffee.dto';
@@ -14,6 +15,8 @@ export class CoffeesService {
     private readonly coffeeRepository: Repository<Coffee>,
     @InjectRepository(Flavor)
     private readonly flavorRepository: Repository<Flavor>,
+    @InjectConnection()
+    private readonly connection: Connection,
   ) {}
 
   findAll(paginationQuery: PaginationQueryDto) {
@@ -37,9 +40,13 @@ export class CoffeesService {
   }
 
   async create(createCoffeeDto: CreateCoffeeDto): Promise<Coffee> {
-    const flavors = await Promise.all(
-      createCoffeeDto.flavors.map((flavor) => this.preloadFlavorByName(flavor)),
-    );
+    const flavors =
+      createCoffeeDto.flavors &&
+      (await Promise.all(
+        createCoffeeDto.flavors.map((flavor) =>
+          this.preloadFlavorByName(flavor),
+        ),
+      ));
     const coffee = this.coffeeRepository.create({
       ...createCoffeeDto,
       flavors,
@@ -69,6 +76,29 @@ export class CoffeesService {
   async remove(id: string): Promise<Coffee> {
     const coffee = await this.findOne(id);
     return this.coffeeRepository.remove(coffee);
+  }
+
+  async recommendCoffee(coffee: Coffee) {
+    const queryRunner = this.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      coffee.recommendations++;
+      const recommendEvent = new Event();
+      recommendEvent.name = 'recommend_coffee';
+      recommendEvent.type = 'coffee';
+      recommendEvent.payload = { coffeeId: coffee.id };
+
+      await queryRunner.manager.save(coffee);
+      await queryRunner.manager.save(recommendEvent);
+
+      await queryRunner.commitTransaction();
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+    } finally {
+      await queryRunner.release();
+    }
   }
 
   private async preloadFlavorByName(name: string): Promise<Flavor> {

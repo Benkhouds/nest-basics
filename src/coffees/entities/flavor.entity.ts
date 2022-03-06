@@ -3,7 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   ManyToMany,
-  JoinTable,
+  Index,
 } from 'typeorm';
 import { Coffee } from './coffee.entity';
 
@@ -12,6 +12,7 @@ export class Flavor {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Index()
   @Column()
   name: string;
 
